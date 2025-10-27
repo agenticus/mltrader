@@ -120,7 +120,7 @@ def login(driver, project_id):
     login_button.click()
     time.sleep(30)
 
-def download_stock_screener_csv_to_gcs(driver, bucket_name, daily_blob_name, temp_download_dir, project_id):
+def download_stock_screener_csv_to_gcs(driver, bucket_name, daily_blob_name, temp_download_dir, working_directory, project_id):
     """
     Navigates to the screener, downloads the CSV, and uploads to GCS.
 
@@ -214,21 +214,21 @@ def download_stock_screener_csv_to_gcs(driver, bucket_name, daily_blob_name, tem
         log_recorder("Reading daily CSV and adding datetime column...")
         try:
             # Read the daily CSV into a pandas DataFrame
-            dtypes_file_path = "screener_dtypes.json"
+            dtypes_file_path = working_directory+r"/screener_dtypes.json"
             with open(dtypes_file_path, 'r') as f:
                 data_types = json.load(f)
             new_daily_df = pd.read_csv(downloaded_file_path,dtype=data_types)
 
             # Convert percentage columns to float
-            percent_columns_path = "percent_columns.json"
+            percent_columns_path = working_directory+r"/percent_columns.json"
             with open(percent_columns_path) as f:
                 percent_columns = json.load(f)
             for i in percent_columns:
-                new_daily_df[i] = new_daily_df[i].str.replace('%', '').astype(float)/100
+                new_daily_df[i] = new_daily_df[i].str.rstrip('%').astype(float) / 100
 
             # Add a new column with the download datetime
             download_datetime = datetime.now() - timedelta(hours=5)
-            new_daily_df['download_datetime'] = download_datetime
+            new_daily_df.loc[:, 'download_datetime'] = download_datetime
             
             # Save the modified DataFrame to the new path
             modified_file_path = os.path.join(temp_download_dir, "modified_" + os.path.basename(downloaded_file_path))
@@ -273,6 +273,7 @@ def main():
     adjusted_time = datetime.now() - timedelta(hours=5)
     today_date_str = adjusted_time.strftime("%Y-%m-%d %H:%M:%S")
     gcs_daily_blob = gcs_bucket_name+"/daily_raw/"+today_date_str+".csv"
+    working_directory = get_secret(project_id, 'working_directory', version_id="latest")
     
     # Use a temporary directory for the entire operation
     tdd = tempfile.TemporaryDirectory()
@@ -291,7 +292,8 @@ def main():
             driver=driver,
             bucket_name=gcs_bucket_name,
             daily_blob_name=gcs_daily_blob,
-            temp_download_dir=tdd.name, # Pass the path string
+            temp_download_dir=tdd.name,
+            working_directory=working_directory,
             project_id=project_id
         )
         log_recorder("Download was successful...")
